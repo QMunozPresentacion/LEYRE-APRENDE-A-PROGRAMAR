@@ -6,6 +6,7 @@
 #include "usuarios.h"
 #include "libros.h"
 #include "procesamiento.h"
+#include "catalogo.h"
 #include "menus.h"
 
 /* --------------------------- Submenu: libros ----------------------------- */
@@ -90,6 +91,7 @@ void menu_inicial(void) {
         titulo_seccion("Bienvenido/a");
         printf("  1) Iniciar sesion\n");
         printf("  2) Registrarse\n");
+        printf("  3) Buscar en el catalogo publico\n");
         printf("  0) Salir\n");
         opcion = leer_entero("\n  Opcion: ");
 
@@ -100,6 +102,8 @@ void menu_inicial(void) {
                 break;
             case 2:
                 usuarios_registrar(); pausar(); break;
+            case 3:
+                catalogo_publico(); pausar(); break;
             case 0:
                 break;
             default:

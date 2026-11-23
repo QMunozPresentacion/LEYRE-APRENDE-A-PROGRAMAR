@@ -1,0 +1,18 @@
+# Ficheros objeto generados por el compilador
+*.o
+
+# Binario compilado
+biblioteca
+
+# Datos persistentes generados en tiempo de ejecucion
+usuarios.txt
+biblioteca.dat
+flag.txt
+
+# Archivos temporales usados en pruebas de exploit
+*.bin
+
+# Ficheros de editor / sistema
+*.swp
+*~
+.DS_Store
