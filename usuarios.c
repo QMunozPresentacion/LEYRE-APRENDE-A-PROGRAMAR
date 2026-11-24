@@ -1,142 +1,70 @@
-/* ============================================================================
- *  usuarios.c  -  Implementacion de la gestion de usuarios
- *
- *  Formato del fichero usuarios.txt (una linea por usuario):
- *      usuario:contrasena
- * ========================================================================== */
 #include <stdio.h>
 #include <string.h>
-#include "config.h"
-#include "ui.h"
+#include <errno.h>
 #include "usuarios.h"
+#include "ui.h"
 
-/* Un usuario del sistema */
-typedef struct {
-    char usuario[LEN_USER];
-    char password[LEN_PASS];
-} Usuario;
-
-/* Estado interno del modulo (privado: 'static') */
-static Usuario usuarios[MAX_USUARIOS];
-static int     num_usuarios = 0;
-static char    usuario_actual[LEN_USER] = "";
-
-/* ------------------------- Funciones auxiliares -------------------------- */
-
-/* Devuelve el indice del usuario con ese nombre, o -1 si no existe. */
-static int indice_usuario(const char *nombre) {
-    for (int i = 0; i < num_usuarios; i++)
-        if (strcmp(usuarios[i].usuario, nombre) == 0)
-            return i;
-    return -1;
-}
-
-/* Vuelca todos los usuarios al fichero. Devuelve 1 si tuvo exito. */
-static int guardar_usuarios(void) {
-    FILE *f = fopen(FICHERO_USUARIOS, "w");
-    if (f == NULL) {
-        msg_error("No se pudo escribir el fichero de usuarios.");
-        return 0;
-    }
-    for (int i = 0; i < num_usuarios; i++)
-        fprintf(f, "%s:%s\n", usuarios[i].usuario, usuarios[i].password);
-    fclose(f);
-    return 1;
-}
-
-/* ----------------------------- Interfaz publica -------------------------- */
-
-void usuarios_cargar(void) {
-    num_usuarios = 0;
+/* Busca en el fichero: 1 = encontrado, 0 = no existe, -1 = error. */
+static int buscar_usuario(const char *nombre, char *password) {
     FILE *f = fopen(FICHERO_USUARIOS, "r");
-    if (f == NULL) return;              /* primera ejecucion: aun no existe */
-
-    char linea[LEN_LINEA];
-    while (fgets(linea, sizeof(linea), f) && num_usuarios < MAX_USUARIOS) {
-        linea[strcspn(linea, "\n")] = '\0';
-        char *sep = strchr(linea, ':');
-        if (sep == NULL) continue;      /* linea mal formada: se ignora */
-        *sep = '\0';
-
-        strncpy(usuarios[num_usuarios].usuario,  linea,   LEN_USER - 1);
-        strncpy(usuarios[num_usuarios].password, sep + 1, LEN_PASS - 1);
-        usuarios[num_usuarios].usuario[LEN_USER - 1]  = '\0';
-        usuarios[num_usuarios].password[LEN_PASS - 1] = '\0';
-        num_usuarios++;
+    if (f == NULL) {
+        if (errno == ENOENT) return 0;
+        msg_error("No se pudieron leer los usuarios.");
+        return -1;
     }
+    char linea[LEN_LINEA], usuario[LEN_USER], clave[LEN_PASS];
+    int encontrado = 0;
+    while (fgets(linea, sizeof(linea), f)) {
+        if (sscanf(linea, "%49[^:]:%49[^\r\n]", usuario, clave) != 2) continue;
+        if (strcmp(usuario, nombre) == 0) {
+            strcpy(password, clave);
+            encontrado = 1;
+            break;
+        }
+    }
+    if (ferror(f)) encontrado = -1;
     fclose(f);
+    if (encontrado == -1) msg_error("Error al leer los usuarios.");
+    return encontrado;
 }
 
 void usuarios_registrar(void) {
+    char nombre[LEN_USER], password[LEN_PASS], guardada[LEN_PASS];
     titulo_seccion("Registro de nuevo usuario");
-
-    if (num_usuarios >= MAX_USUARIOS) {
-        msg_error("Se ha alcanzado el limite de usuarios.");
-        return;
-    }
-
-    char nombre[LEN_USER], pass[LEN_PASS], pass2[LEN_PASS];
     leer_linea("  Nombre de usuario: ", nombre, sizeof(nombre));
-
-    if (!validar_campo(nombre)) {
-        msg_error("Usuario no valido (vacio o contiene ':' '|').");
+    leer_linea("  Contrasena: ", password, sizeof(password));
+    if (!validar_campo(nombre) || !validar_campo(password)) {
+        msg_error("Datos vacios o con separadores ':' '|'.");
         return;
     }
-    if (indice_usuario(nombre) != -1) {     /* control de duplicados */
+    int resultado = buscar_usuario(nombre, guardada);
+    if (resultado == -1) return;
+    if (resultado == 1) {
         msg_error("Ese usuario ya existe.");
         return;
     }
-
-    leer_linea("  Contrasena: ", pass, sizeof(pass));
-    leer_linea("  Repite la contrasena: ", pass2, sizeof(pass2));
-
-    if (!validar_campo(pass)) {
-        msg_error("Contrasena no valida.");
+    FILE *f = fopen(FICHERO_USUARIOS, "a");
+    if (f == NULL) {
+        msg_error("No se pudo abrir el fichero de usuarios.");
         return;
     }
-    if (strcmp(pass, pass2) != 0) {
-        msg_error("Las contrasenas no coinciden.");
-        return;
-    }
-
-    strncpy(usuarios[num_usuarios].usuario,  nombre, LEN_USER - 1);
-    strncpy(usuarios[num_usuarios].password, pass,   LEN_PASS - 1);
-    usuarios[num_usuarios].usuario[LEN_USER - 1]  = '\0';
-    usuarios[num_usuarios].password[LEN_PASS - 1] = '\0';
-    num_usuarios++;
-
-    if (guardar_usuarios())
-        msg_ok("Usuario registrado correctamente.");
+    int error = fprintf(f, "%s:%s\n", nombre, password) < 0;
+    if (fclose(f) != 0) error = 1;
+    if (error) msg_error("No se pudo guardar el usuario.");
+    else msg_ok("Usuario registrado correctamente.");
 }
 
-int usuarios_login(void) {
+int usuarios_login(char *usuario) {
+    char password[LEN_PASS], guardada[LEN_PASS];
     titulo_seccion("Inicio de sesion");
-
-    char nombre[LEN_USER], pass[LEN_PASS];
-    leer_linea("  Usuario: ", nombre, sizeof(nombre));
-    leer_linea("  Contrasena: ", pass, sizeof(pass));
-
-    int idx = indice_usuario(nombre);
-    if (idx == -1 || strcmp(usuarios[idx].password, pass) != 0) {
+    leer_linea("  Usuario: ", usuario, LEN_USER);
+    leer_linea("  Contrasena: ", password, sizeof(password));
+    int resultado = buscar_usuario(usuario, guardada);
+    if (resultado == -1) return 0;
+    if (resultado == 0 || strcmp(guardada, password) != 0) {
         msg_error("Usuario o contrasena incorrectos.");
         return 0;
     }
-
-    strncpy(usuario_actual, nombre, LEN_USER - 1);
-    usuario_actual[LEN_USER - 1] = '\0';
     msg_ok("Sesion iniciada.");
     return 1;
-}
-
-void usuarios_logout(void) {
-    usuario_actual[0] = '\0';
-    msg_info("Sesion cerrada.");
-}
-
-int sesion_activa(void) {
-    return usuario_actual[0] != '\0';
-}
-
-const char *sesion_usuario(void) {
-    return usuario_actual;
 }

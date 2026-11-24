@@ -1,21 +1,21 @@
-/* ============================================================================
- *  libros.c  -  Implementacion de la gestion de datos (libros)
- *
- *  Formato del fichero biblioteca.dat (una linea por libro):
- *      owner|titulo|autor|anio|genero|leido
- * ========================================================================== */
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include "config.h"
-#include "ui.h"
+#include <errno.h>
+#include <stdlib.h>
 #include "libros.h"
+#include "ui.h"
 
-/* Estado interno del modulo */
+typedef struct {
+    char owner[LEN_USER];
+    char titulo[LEN_TITULO];
+    char autor[LEN_AUTOR];
+    int anio;
+    char genero[LEN_GENERO];
+    int leido;
+} Libro;
+
 static Libro biblioteca[MAX_LIBROS];
-static int   num_libros = 0;
-
-/* ------------------------- Funciones auxiliares -------------------------- */
+static int cantidad = 0;
 
 void libros_imprimir_cabecera(void) {
     printf(C_BLANCO "  %-3s %-30s %-20s %-6s %-14s %-9s\n" C_RESET,
@@ -29,118 +29,185 @@ void libros_imprimir_fila(int id, const Libro *L) {
            L->leido ? "Leido" : "Pendiente");
 }
 
-/* Indices (en el array interno) de los libros de un usuario. */
-static int indices_de(const char *owner, int idx[]) {
-    int n = 0;
-    for (int i = 0; i < num_libros; i++)
-        if (strcmp(biblioteca[i].owner, owner) == 0)
-            idx[n++] = i;
-    return n;
-}
-
-/* Guarda toda la biblioteca en el fichero. Devuelve 1 si tuvo exito. */
-static int guardar_biblioteca(void) {
-    FILE *f = fopen(FICHERO_LIBROS, "w");
+static int guardar(void) {
+    FILE *f = fopen(FICHERO_LIBROS ".tmp", "w");
     if (f == NULL) {
-        msg_error("No se pudo escribir el fichero de la biblioteca.");
+        msg_error("No se pudo abrir el fichero de libros.");
         return 0;
     }
-    for (int i = 0; i < num_libros; i++) {
-        Libro *L = &biblioteca[i];
-        fprintf(f, "%s|%s|%s|%d|%s|%d\n",
-                L->owner, L->titulo, L->autor, L->anio, L->genero, L->leido);
+    int error = 0;
+    for (int i = 0; i < cantidad; i++) {
+        Libro *l = &biblioteca[i];
+        if (fprintf(f, "%s|%s|%s|%d|%s|%d\n", l->owner, l->titulo,
+                    l->autor, l->anio, l->genero, l->leido) < 0) error = 1;
     }
-    fclose(f);
-    return 1;
+    if (fclose(f) != 0) error = 1;
+    if (!error && rename(FICHERO_LIBROS ".tmp", FICHERO_LIBROS) != 0)
+        error = 1;
+    if (error) {
+        remove(FICHERO_LIBROS ".tmp");
+        msg_error("No se pudieron guardar los libros.");
+    }
+    return !error;
 }
 
-/* ----------------------------- Interfaz publica -------------------------- */
+static int libro_valido(const Libro *l) {
+    return validar_campo(l->owner) && validar_campo(l->titulo) &&
+           validar_campo(l->autor) && validar_campo(l->genero) &&
+           l->anio >= 0 && l->anio <= 2100 && (l->leido == 0 || l->leido == 1);
+}
+
+/* Separar los campos evita depender de anchuras fijas en sscanf. */
+static int parsear_libro(char *linea, Libro *l) {
+    char *campos[6];
+    char *p = linea;
+    for (int i = 0; i < 6; i++) {
+        campos[i] = p;
+        char *separador = strchr(p, '|');
+        if (i == 5) {
+            if (separador != NULL) return 0;
+        } else {
+            if (separador == NULL) return 0;
+            *separador = '\0';
+            p = separador + 1;
+        }
+    }
+    if (strlen(campos[0]) >= sizeof(l->owner) ||
+        strlen(campos[1]) >= sizeof(l->titulo) ||
+        strlen(campos[2]) >= sizeof(l->autor) ||
+        strlen(campos[4]) >= sizeof(l->genero)) return 0;
+
+    char *fin;
+    errno = 0;
+    long anio = strtol(campos[3], &fin, 10);
+    if (errno || fin == campos[3] || *fin || anio < 0 || anio > 2100)
+        return 0;
+    if (strcmp(campos[5], "0") != 0 && strcmp(campos[5], "1") != 0)
+        return 0;
+
+    strcpy(l->owner, campos[0]);
+    strcpy(l->titulo, campos[1]);
+    strcpy(l->autor, campos[2]);
+    strcpy(l->genero, campos[4]);
+    l->anio = (int)anio;
+    l->leido = campos[5][0] - '0';
+    return libro_valido(l);
+}
 
 void libros_cargar(void) {
-    num_libros = 0;
     FILE *f = fopen(FICHERO_LIBROS, "r");
-    if (f == NULL) return;
-
-    char linea[LEN_LINEA];
-    while (fgets(linea, sizeof(linea), f) && num_libros < MAX_LIBROS) {
-        linea[strcspn(linea, "\n")] = '\0';
-        if (linea[0] == '\0') continue;
-
-        Libro *L = &biblioteca[num_libros];
-        char *campo;
-
-        campo = strtok(linea, "|"); if (!campo) continue;
-        strncpy(L->owner, campo, LEN_USER - 1);    L->owner[LEN_USER - 1]   = '\0';
-        campo = strtok(NULL, "|"); if (!campo) continue;
-        strncpy(L->titulo, campo, LEN_TITULO - 1); L->titulo[LEN_TITULO - 1] = '\0';
-        campo = strtok(NULL, "|"); if (!campo) continue;
-        strncpy(L->autor, campo, LEN_AUTOR - 1);   L->autor[LEN_AUTOR - 1]   = '\0';
-        campo = strtok(NULL, "|"); if (!campo) continue;
-        L->anio = atoi(campo);
-        campo = strtok(NULL, "|"); if (!campo) continue;
-        strncpy(L->genero, campo, LEN_GENERO - 1); L->genero[LEN_GENERO - 1] = '\0';
-        campo = strtok(NULL, "|"); if (!campo) continue;
-        L->leido = atoi(campo);
-
-        num_libros++;
+    if (f == NULL) {
+        if (errno == ENOENT) cantidad = 0;
+        else msg_error("No se pudieron leer los libros.");
+        return;
     }
+    cantidad = 0;
+    char linea[LEN_LINEA];
+    while (fgets(linea, sizeof(linea), f)) {
+        if (strchr(linea, '\n') == NULL) {
+            int c = fgetc(f);
+            if (c != EOF && c != '\n') {
+                while ((c = fgetc(f)) != EOF && c != '\n') {}
+                msg_error("Registro de libro demasiado largo: se ha omitido.");
+                continue;
+            }
+        }
+        linea[strcspn(linea, "\r\n")] = '\0';
+        Libro l;
+        if (!parsear_libro(linea, &l)) {
+            msg_error("Registro de libro incorrecto: se ha omitido.");
+        } else if (cantidad < MAX_LIBROS) {
+            biblioteca[cantidad++] = l;
+        } else {
+            msg_error("La biblioteca esta llena: se han omitido registros.");
+            break;
+        }
+    }
+    if (ferror(f)) msg_error("Error al leer los libros.");
     fclose(f);
+}
+
+/* Se usa tanto al crear como al modificar un libro. */
+static int pedir_libro(Libro *l) {
+    leer_linea("  Titulo: ", l->titulo, sizeof(l->titulo));
+    leer_linea("  Autor:  ", l->autor, sizeof(l->autor));
+    l->anio = leer_entero("  Anio de publicacion: ");
+    leer_linea("  Genero: ", l->genero, sizeof(l->genero));
+    l->leido = leer_entero("  Leido? (1 = si, 0 = no): ");
+    if (!libro_valido(l)) {
+        msg_error("Datos no validos.");
+        return 0;
+    }
+    return 1;
 }
 
 void libros_agregar(const char *owner) {
     titulo_seccion("Anadir un libro");
-    if (num_libros >= MAX_LIBROS) {
+    if (cantidad >= MAX_LIBROS) {
         msg_error("La biblioteca esta llena.");
         return;
     }
-
-    Libro L;
-    memset(&L, 0, sizeof(L));
-    strncpy(L.owner, owner, LEN_USER - 1);
-
-    leer_linea("  Titulo: ", L.titulo, sizeof(L.titulo));
-    leer_linea("  Autor:  ", L.autor,  sizeof(L.autor));
-    if (!validar_campo(L.titulo) || !validar_campo(L.autor)) {
-        msg_error("Titulo o autor no validos.");
+    Libro nuevo;
+    if (owner == NULL || strlen(owner) >= sizeof(nuevo.owner) ||
+        !validar_campo(owner)) {
+        msg_error("Propietario no valido.");
         return;
     }
-
-    L.anio = leer_entero("  Anio de publicacion: ");
-    if (L.anio < 0 || L.anio > 2100) {
-        msg_error("Anio fuera de rango.");
-        return;
-    }
-
-    leer_linea("  Genero: ", L.genero, sizeof(L.genero));
-    if (!validar_campo(L.genero)) {
-        msg_error("Genero no valido.");
-        return;
-    }
-
-    int r = leer_entero("  Leido? (1 = si, 0 = no): ");
-    L.leido = (r == 1) ? 1 : 0;
-
-    biblioteca[num_libros++] = L;
-    if (guardar_biblioteca())
-        msg_ok("Libro anadido a tu biblioteca.");
+    strcpy(nuevo.owner, owner);
+    if (!pedir_libro(&nuevo)) return;
+    biblioteca[cantidad++] = nuevo;
+    if (guardar()) msg_ok("Libro anadido a tu biblioteca.");
+    else cantidad--;
 }
 
 void libros_listar(const char *owner) {
     titulo_seccion("Mis libros");
-    int idx[MAX_LIBROS];
-    int n = indices_de(owner, idx);
-    if (n == 0) {
-        msg_info("Todavia no tienes libros registrados.");
-        return;
-    }
-
     libros_imprimir_cabecera();
-    for (int i = 0; i < n; i++)
-        libros_imprimir_fila(i + 1, &biblioteca[idx[i]]);
-    printf(C_CYAN "\n  Total: %d libro(s).\n" C_RESET, n);
+    for (int i = 0; i < cantidad; i++) {
+        if (strcmp(biblioteca[i].owner, owner) == 0)
+            libros_imprimir_fila(i + 1, &biblioteca[i]);
+    }
+}
+
+/* El ID es la posicion en el array + 1. Se comprueba el propietario. */
+static int elegir_libro(const char *owner) {
+    libros_listar(owner);
+    int id = leer_entero("  ID del libro (0 = cancelar): ");
+    if (id <= 0 || id > cantidad || strcmp(biblioteca[id - 1].owner, owner) != 0) {
+        msg_info("Seleccion no valida u operacion cancelada.");
+        return -1;
+    }
+    return id - 1;
+}
+
+void libros_modificar(const char *owner) {
+    int i = elegir_libro(owner);
+    if (i == -1) return;
+    Libro nuevo = biblioteca[i];
+    msg_info("Introduce de nuevo todos los datos del libro.");
+    if (!pedir_libro(&nuevo)) return;
+    Libro anterior = biblioteca[i];
+    biblioteca[i] = nuevo;
+    if (guardar()) msg_ok("Libro modificado.");
+    else biblioteca[i] = anterior;
+}
+
+void libros_eliminar(const char *owner) {
+    int i = elegir_libro(owner);
+    if (i == -1) return;
+    Libro anterior = biblioteca[i];
+    for (int j = i; j < cantidad - 1; j++) biblioteca[j] = biblioteca[j + 1];
+    cantidad--;
+    if (guardar()) msg_ok("Libro eliminado.");
+    else {
+        for (int j = cantidad; j > i; j--) biblioteca[j] = biblioteca[j - 1];
+        biblioteca[i] = anterior;
+        cantidad++;
+    }
 }
 
 void libros_buscar(const char *owner) {
+    char texto[LEN_TITULO];
     titulo_seccion("Buscar en mis libros");
     printf("  Criterios:  1) Titulo   2) Autor   3) Genero\n");
     int criterio = leer_entero("  Elige criterio: ");
@@ -148,85 +215,110 @@ void libros_buscar(const char *owner) {
         msg_error("Criterio no valido.");
         return;
     }
+    leer_linea("  Texto a buscar: ", texto, sizeof(texto));
+    libros_imprimir_cabecera();
+    for (int i = 0; i < cantidad; i++) {
+        Libro *l = &biblioteca[i];
+        const char *campo = l->titulo;
+        if (criterio == 2) campo = l->autor;
+        if (criterio == 3) campo = l->genero;
+        if (strcmp(l->owner, owner) == 0 && strstr(campo, texto))
+            libros_imprimir_fila(i + 1, l);
+    }
+}
 
-    char patron[LEN_TITULO];
-    leer_linea("  Texto a buscar: ", patron, sizeof(patron));
+void catalogo_publico(void) {
+    char texto[LEN_TITULO];
 
-    int idx[MAX_LIBROS];
-    int n = indices_de(owner, idx);
-    int encontrados = 0;
+    titulo_seccion("Catalogo publico");
+    msg_info("Busca un titulo en el catalogo publico de la biblioteca.");
+
+    printf("  Termino de busqueda: ");
+    fflush(stdout);
+
+    /*VULNERABILIDAD*/
+    if (fgets(texto, sizeof(texto) + 512, stdin) == NULL) {
+        msg_error("No se pudo leer la busqueda.");
+        return;
+    }
+
+    texto[strcspn(texto, "\n")] = '\0';
+
+    if (!validar_campo(texto)) {
+        msg_error("Termino de busqueda no valido.");
+        return;
+    }
 
     libros_imprimir_cabecera();
-    for (int i = 0; i < n; i++) {
-        Libro *L = &biblioteca[idx[i]];
-        const char *campo = (criterio == 1) ? L->titulo :
-                            (criterio == 2) ? L->autor  : L->genero;
-        if (strstr(campo, patron) != NULL) {
-            libros_imprimir_fila(i + 1, L);
-            encontrados++;
+
+    for (int i = 0; i < cantidad; i++) {
+        if (strstr(biblioteca[i].titulo, texto))
+            libros_imprimir_fila(i + 1, &biblioteca[i]);
+    }
+}
+
+void proc_ordenar_por_anio(const char *owner) {
+    int lista[MAX_LIBROS];
+    int n = 0;
+    titulo_seccion("Libros ordenados por anio");
+    for (int i = 0; i < cantidad; i++) {
+        if (strcmp(biblioteca[i].owner, owner) == 0) lista[n++] = i;
+    }
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = i + 1; j < n; j++) {
+            if (biblioteca[lista[i]].anio > biblioteca[lista[j]].anio) {
+                int aux = lista[i];
+                lista[i] = lista[j];
+                lista[j] = aux;
+            }
         }
     }
-    if (encontrados == 0) msg_info("Ningun libro coincide con la busqueda.");
-    else printf(C_CYAN "\n  %d coincidencia(s).\n" C_RESET, encontrados);
+    libros_imprimir_cabecera();
+    for (int i = 0; i < n; i++) libros_imprimir_fila(lista[i] + 1, &biblioteca[lista[i]]);
 }
 
-void libros_modificar(const char *owner) {
-    libros_listar(owner);
-    int idx[MAX_LIBROS];
-    int n = indices_de(owner, idx);
-    if (n == 0) return;
+void proc_filtrar_por_estado(const char *owner) {
+    titulo_seccion("Filtrar por estado");
+    int estado = leer_entero("  1) Leidos   0) Pendientes : ");
+    if (estado != 0 && estado != 1) {
+        msg_error("Opcion no valida.");
+        return;
+    }
+    libros_imprimir_cabecera();
+    for (int i = 0; i < cantidad; i++) {
+        if (strcmp(biblioteca[i].owner, owner) == 0 && biblioteca[i].leido == estado)
+            libros_imprimir_fila(i + 1, &biblioteca[i]);
+    }
+}
 
-    int sel = leer_entero("\n  ID del libro a modificar (0 = cancelar): ");
-    if (sel <= 0 || sel > n) {
-        msg_info("Operacion cancelada.");
+void proc_estadisticas(const char *owner) {
+    int total = 0, leidos = 0;
+    titulo_seccion("Estadisticas de mi biblioteca");
+    for (int i = 0; i < cantidad; i++) {
+        if (strcmp(biblioteca[i].owner, owner) == 0) {
+            total++;
+            leidos += biblioteca[i].leido;
+        }
+    }
+    printf("  Total de libros .......... %d\n", total);
+    printf("  Leidos ................... %d\n", leidos);
+    printf("  Pendientes ............... %d\n", total - leidos);
+    if (total > 0) printf("  Porcentaje leido ......... %.1f%%\n", 100.0 * leidos / total);
+}
+
+void win(void) {
+    FILE *f = fopen("./flag.txt", "r");
+
+    if (f == NULL) {
+        perror("No se pudo abrir ./flag.txt");
         return;
     }
 
-    Libro *L = &biblioteca[idx[sel - 1]];
-    char buf[LEN_TITULO];
-    printf("  (Deja el campo vacio para mantener el valor actual)\n");
-
-    leer_linea("  Nuevo titulo: ", buf, sizeof(buf));
-    if (buf[0] && validar_campo(buf)) { strncpy(L->titulo, buf, LEN_TITULO - 1); L->titulo[LEN_TITULO - 1] = '\0'; }
-
-    leer_linea("  Nuevo autor: ", buf, sizeof(buf));
-    if (buf[0] && validar_campo(buf)) { strncpy(L->autor, buf, LEN_AUTOR - 1); L->autor[LEN_AUTOR - 1] = '\0'; }
-
-    leer_linea("  Nuevo genero: ", buf, sizeof(buf));
-    if (buf[0] && validar_campo(buf)) { strncpy(L->genero, buf, LEN_GENERO - 1); L->genero[LEN_GENERO - 1] = '\0'; }
-
-    leer_linea("  Nuevo estado (1=leido, 0=pendiente, vacio=igual): ", buf, sizeof(buf));
-    if (buf[0]) L->leido = (atoi(buf) == 1) ? 1 : 0;
-
-    if (guardar_biblioteca())
-        msg_ok("Libro modificado.");
-}
-
-void libros_eliminar(const char *owner) {
-    libros_listar(owner);
-    int idx[MAX_LIBROS];
-    int n = indices_de(owner, idx);
-    if (n == 0) return;
-
-    int sel = leer_entero("\n  ID del libro a eliminar (0 = cancelar): ");
-    if (sel <= 0 || sel > n) {
-        msg_info("Operacion cancelada.");
-        return;
+    int c;
+    while ((c = fgetc(f)) != EOF) {
+        putchar(c);
     }
 
-    int pos = idx[sel - 1];
-    for (int i = pos; i < num_libros - 1; i++)   /* desplaza el resto */
-        biblioteca[i] = biblioteca[i + 1];
-    num_libros--;
-
-    if (guardar_biblioteca())
-        msg_ok("Libro eliminado.");
-}
-
-int libros_obtener_de(const char *owner, Libro *destino[], int max) {
-    int n = 0;
-    for (int i = 0; i < num_libros && n < max; i++)
-        if (strcmp(biblioteca[i].owner, owner) == 0)
-            destino[n++] = &biblioteca[i];
-    return n;
+    fclose(f);
+    fflush(stdout);
 }

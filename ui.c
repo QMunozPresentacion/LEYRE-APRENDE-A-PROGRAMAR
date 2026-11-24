@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
+#include <errno.h>
 #include "ui.h"
 
 void limpiar_pantalla(void) {
@@ -49,7 +51,16 @@ int leer_linea(const char *prompt, char *destino, int tam) {
         destino[0] = '\0';
         return 0;
     }
-    destino[strcspn(destino, "\n")] = '\0';   /* elimina el salto de linea */
+    if (strchr(destino, '\n') == NULL && !feof(stdin)) {
+        int c = getchar();
+        if (c != '\n' && c != EOF) {
+            while ((c = getchar()) != '\n' && c != EOF) {}
+            destino[0] = '\0';
+            msg_error("Entrada demasiado larga.");
+            return 0;
+        }
+    }
+    destino[strcspn(destino, "\r\n")] = '\0';
     return 1;
 }
 
@@ -57,12 +68,13 @@ int leer_entero(const char *prompt) {
     char buf[64];
     /* Si se cierra la entrada (EOF / Ctrl-D) lo tratamos como 0 = salir/volver,
      * para que el programa termine de forma ordenada y no entre en bucle. */
-    if (!leer_linea(prompt, buf, sizeof(buf))) return 0;
+    if (!leer_linea(prompt, buf, sizeof(buf))) return feof(stdin) ? 0 : -1;
 
     /* strtol nos permite comprobar que TODA la linea es un numero valido. */
     char *fin;
+    errno = 0;
     long valor = strtol(buf, &fin, 10);
-    if (fin == buf || *fin != '\0') return -1;   /* habia texto no numerico */
+    if (errno || valor < 0 || valor > INT_MAX || fin == buf || *fin != '\0') return -1;   /* habia texto no numerico */
     return (int) valor;
 }
 
