@@ -1,14 +1,14 @@
 CC = gcc
 CFLAGS = -std=c11 -Wall -Wextra -O0 -g -fno-stack-protector -no-pie
 LDFLAGS = -no-pie
-OBJ = main.o ui.o usuarios.o libros.o
+OBJ = main.o ui.o usuarios.o gatos.o
 
-biblioteca: $(OBJ)
+gatos: $(OBJ)
 	$(CC) $(LDFLAGS) -o $@ $(OBJ)
 
-$(OBJ): config.h ui.h usuarios.h libros.h
+$(OBJ): config.h ui.h usuarios.h gatos.h
 
 clean:
-	rm -f $(OBJ) biblioteca
+	rm -f $(OBJ) gatos
 
 .PHONY: clean

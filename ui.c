@@ -23,13 +23,11 @@ void banner(void) {
     printf(C_CYAN);
     printf("  +==================================================+\n");
     printf("  |                                                  |\n");
-    printf("  |      ___   BIBLIOTECA  PERSONAL   ___            |\n");
-    printf("  |     |   |  ____________________  |   |           |\n");
-    printf("  |     |[ ]| |  _  _  _  _  _  _  _ |[ ]|           |\n");
-    printf("  |     |   | | |_||_||_||_||_||_||_|| | |           |\n");
-    printf("  |     |___| |____________________| |___|           |\n");
+    printf("  |              REFUGIO  DE  GATOS                  |\n");
+    printf("  |      /\\_/\\  ___________________   /\\_/\\          |\n");
+    printf("  |     ( o.o ) |  >  ^   ^   ^  < | ( o.o )         |\n");
+    printf("  |      > ^ <  |__________________|  > ^ <          |\n");
     printf("  |                                                  |\n");
-    printf("  |         Gestor de libros en C  -  SSI            |\n");
     printf("  |                                                  |\n");
     printf("  +==================================================+\n");
     printf(C_RESET);
