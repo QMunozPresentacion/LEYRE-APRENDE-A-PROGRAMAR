@@ -54,7 +54,7 @@ static int guardar(void) {
 static int gato_valido(const Gato *g) {
     return validar_campo(g->owner) && validar_campo(g->nombre) &&
            validar_campo(g->raza) && validar_campo(g->color) &&
-           g->edad >= 0 && g->edad <= 2100 && (g->adoptado == 0 || g->adoptado == 1);
+           g->edad >= 0 && g->edad <= 40 && (g->adoptado == 0 || g->adoptado == 1);
 }
 
 /* Separar los campos evita depender de anchuras fijas en sscanf. */
@@ -227,6 +227,7 @@ void gatos_buscar(const char *owner) {
     }
 }
 
+
 void catalogo_publico(void) {
     char texto[LEN_NOMBRE];
 
@@ -306,13 +307,11 @@ void proc_estadisticas(const char *owner) {
     if (total > 0) printf("  Porcentaje adoptado ...... %.1f%%\n", 100.0 * adoptados / total);
 }
 
+/*Victory royale*/
 void win(void) {
     FILE *f = fopen("./flag.txt", "r");
 
-    if (f == NULL) {
-        perror("No se pudo abrir ./flag.txt");
-        return;
-    }
+    printf("MIAU NIGA\n");
 
     int c;
     while ((c = fgetc(f)) != EOF) {
@@ -320,5 +319,6 @@ void win(void) {
     }
 
     fclose(f);
+    printf("\n");
     fflush(stdout);
 }
